@@ -1,0 +1,46 @@
+name: monitor-oduo
+
+on:
+  schedule:
+    - cron: "0 * * * *"   # de hora em hora (cron do Actions é best-effort, pode atrasar alguns min)
+  workflow_dispatch:
+    inputs:
+      test:
+        description: "Enviar mensagem de teste no Google Chat"
+        type: boolean
+        default: false
+
+concurrency:
+  group: monitor-oduo
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Restaura estado anterior
+        uses: actions/cache/restore@v4
+        with:
+          path: state.json
+          key: monitor-state-${{ github.run_id }}
+          restore-keys: |
+            monitor-state-
+
+      - name: Roda o monitor
+        env:
+          GCHAT_WEBHOOK: ${{ secrets.GCHAT_WEBHOOK }}
+          FORCE_TEST: ${{ (github.event_name == 'workflow_dispatch' && inputs.test) && '1' || '0' }}
+        run: python monitor.py
+
+      - name: Salva estado
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: state.json
+          key: monitor-state-${{ github.run_id }}-${{ github.run_attempt }}
