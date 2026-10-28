@@ -19,6 +19,7 @@ import json
 import os
 import socket
 import ssl
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -125,17 +126,27 @@ def save_state(st):
         json.dump(st, f, indent=2)
 
 
-def notify(text):
+def notify(text, attempts=4):
+    """Envia ao Google Chat com retry — o Chat às vezes devolve 5xx transitório,
+    e um alerta de queda não pode se perder por causa disso."""
     if not WEBHOOK:
         print("[WARN] GCHAT_WEBHOOK vazio — não enviei:", text.replace("\n", " | "))
         return
     data = json.dumps({"text": text}).encode()
-    req = urllib.request.Request(WEBHOOK, data=data, headers={"Content-Type": "application/json"})
-    try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
-            print("[chat]", r.status, "|", text.replace("\n", " | "))
-    except Exception as e:
-        print("[ERRO chat]", e)
+    for i in range(attempts):
+        req = urllib.request.Request(WEBHOOK, data=data, headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+                print("[chat]", r.status, "|", text.replace("\n", " | "))
+                return
+        except Exception as e:
+            code = getattr(e, "code", None)
+            retriable = code is None or code >= 500  # rede ou 5xx -> tenta de novo
+            print(f"[chat] tentativa {i + 1}/{attempts} falhou ({e}){' — retry' if retriable and i + 1 < attempts else ''}")
+            if not retriable or i + 1 == attempts:
+                print("[ERRO chat] desisti de enviar:", text.replace("\n", " | "))
+                return
+            time.sleep(2 * (i + 1))
 
 
 def main():
